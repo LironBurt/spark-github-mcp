@@ -1,0 +1,13 @@
+{
+  "name": "spark-github-mcp",
+  "version": "1.0.0",
+  "description": "Node.js GitHub MCP Server configured for Vercel deployment with OAuth 2.0 authentication support",
+  "main": "api/mcp.js",
+  "type": "module",
+  "dependencies": {
+    "@octokit/rest": "^20.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
