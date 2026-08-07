@@ -1,70 +1,51 @@
 import { Octokit } from "@octokit/rest";
 
-// Common CORS headers
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
-
 export default async function handler(req, res) {
-  // Handle CORS preflight
+  // CORS Headers
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-mcp-version");
+
   if (req.method === "OPTIONS") {
-    res.status(200).setHeaders(new Headers(corsHeaders)).send("OK");
-    return;
+    return res.status(200).end();
   }
 
-  // Set CORS headers for all responses
-  for (const [key, value] of Object.entries(corsHeaders)) {
-    res.setHeader(key, value);
-  }
+  // Extract auth token from Authorization header or environment variable
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : process.env.GITHUB_TOKEN;
 
-  // Handle MCP Server Discovery via SSE
+  const octokit = new Octokit({ auth: token });
+
+  // Handle GET / discovery (res.end prevents Vercel serverless function timeout)
   if (req.method === "GET") {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
-
-    // We send an endpoint event to inform the client where to post
-    res.write(`event: endpoint\ndata: /api/mcp\n\n`);
-    return;
+    res.write("event: endpoint\ndata: /api/mcp\n\n");
+    return res.end();
   }
 
-  // Handle MCP JSON-RPC
   if (req.method === "POST") {
     try {
-      const { jsonrpc, id, method, params } = req.body;
+      const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
+      const { method, params, id } = body;
 
-      if (jsonrpc !== "2.0") {
-        return res.status(400).json({ error: "Invalid JSON-RPC version" });
-      }
-
-      // Initialize
       if (method === "initialize") {
         return res.status(200).json({
           jsonrpc: "2.0",
           id,
           result: {
             protocolVersion: "2024-11-05",
-            capabilities: {
-              tools: {
-                listChanged: false
-              }
-            },
-            serverInfo: {
-              name: "spark-github-mcp",
-              version: "1.0.0"
-            }
+            capabilities: { tools: {} },
+            serverInfo: { name: "spark-github-mcp", version: "1.0.0" }
           }
         });
       }
 
-      // Notifications (like initialized, etc)
-      if (method.startsWith("notifications/")) {
-        return res.status(200).send("OK");
+      if (method && method.startsWith("notifications/")) {
+        return res.status(200).end();
       }
 
-      // Tools List
       if (method === "tools/list") {
         return res.status(200).json({
           jsonrpc: "2.0",
@@ -73,16 +54,12 @@ export default async function handler(req, res) {
             tools: [
               {
                 name: "list_repositories",
-                description: "List repositories for the authenticated user",
-                inputSchema: {
-                  type: "object",
-                  properties: {},
-                  required: []
-                }
+                description: "List public and private repositories for the authenticated user",
+                inputSchema: { type: "object", properties: {} }
               },
               {
                 name: "get_file_contents",
-                description: "Get contents of a file in a repository",
+                description: "Get the contents of a file in a GitHub repository",
                 inputSchema: {
                   type: "object",
                   properties: {
@@ -98,99 +75,53 @@ export default async function handler(req, res) {
         });
       }
 
-      // Tools Call
       if (method === "tools/call") {
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
-          return res.status(401).json({
-            jsonrpc: "2.0",
-            id,
-            error: {
-              code: -32000,
-              message: "Unauthorized: Missing or invalid Authorization header"
-            }
-          });
-        }
-
-        const token = authHeader.split(" ")[1];
-        const octokit = new Octokit({ auth: token });
-        const { name, arguments: args } = params;
+        const { name, arguments: args } = params || {};
 
         if (name === "list_repositories") {
-          const response = await octokit.repos.listForAuthenticatedUser({
-            sort: "updated",
-            per_page: 10
-          });
-
+          const { data } = await octokit.rest.repos.listForAuthenticatedUser({ per_page: 30 });
+          const repos = data.map(r => ({
+            name: r.name,
+            full_name: r.full_name,
+            private: r.private,
+            html_url: r.html_url,
+            description: r.description
+          }));
           return res.status(200).json({
             jsonrpc: "2.0",
             id,
             result: {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify(response.data, null, 2)
-                }
-              ]
+              content: [{ type: "text", text: JSON.stringify(repos, null, 2) }]
             }
           });
         }
 
         if (name === "get_file_contents") {
-          const { owner, repo, path } = args;
-          const response = await octokit.repos.getContent({
-            owner,
-            repo,
-            path
+          const { data } = await octokit.rest.repos.getContent({
+            owner: args.owner,
+            repo: args.repo,
+            path: args.path
           });
-
-          let contentText = "";
-          if (response.data.type === "file" && response.data.content) {
-            contentText = Buffer.from(response.data.content, 'base64').toString('utf8');
-          } else {
-            contentText = JSON.stringify(response.data, null, 2);
-          }
-
+          const content = Buffer.from(data.content, "base64").toString("utf-8");
           return res.status(200).json({
             jsonrpc: "2.0",
             id,
             result: {
-              content: [
-                {
-                  type: "text",
-                  text: contentText
-                }
-              ]
+              content: [{ type: "text", text: content }]
             }
           });
         }
-
-        return res.status(404).json({
-          jsonrpc: "2.0",
-          id,
-          error: {
-            code: -32601,
-            message: `Tool not found: ${name}`
-          }
-        });
       }
 
-      return res.status(404).json({ error: "Method not found" });
-
+      return res.status(200).json({ jsonrpc: "2.0", id, result: {} });
     } catch (error) {
-      console.error("Error processing POST request:", error);
-      const id = req.body?.id || null;
       return res.status(500).json({
         jsonrpc: "2.0",
-        id,
-        error: {
-          code: -32000,
-          message: error.message || "Internal Server Error"
-        }
+        id: req.body?.id || null,
+        error: { code: -32603, message: error.message }
       });
     }
   }
 
-  // Method Not Allowed
-  res.status(405).json({ error: "Method Not Allowed" });
+  return res.status(405).json({ error: "Method not allowed" });
 }
