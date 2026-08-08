@@ -4,6 +4,9 @@
   "description": "Node.js GitHub MCP Server configured for Vercel deployment with OAuth 2.0 authentication support",
   "main": "api/mcp.js",
   "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
   "dependencies": {
     "@octokit/rest": "^20.1.0"
   },
