@@ -10,9 +10,13 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Extract auth token from Authorization header or environment variable
+  // Extract auth token from Authorization header
   const authHeader = req.headers.authorization || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : process.env.GITHUB_TOKEN;
+  const token = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : null;
+
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   const octokit = new Octokit({ auth: token });
 
