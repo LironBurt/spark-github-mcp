@@ -1,5 +1,13 @@
 import { Octokit } from "@octokit/rest";
 
+function sendJsonResponse(res, id, result) {
+  return res.status(200).json({
+    jsonrpc: "2.0",
+    id,
+    result
+  });
+}
+
 export default async function handler(req, res) {
   // CORS Headers
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -31,14 +39,10 @@ export default async function handler(req, res) {
       const { method, params, id } = body;
 
       if (method === "initialize") {
-        return res.status(200).json({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            protocolVersion: "2024-11-05",
-            capabilities: { tools: {} },
-            serverInfo: { name: "spark-github-mcp", version: "1.0.0" }
-          }
+        return sendJsonResponse(res, id, {
+          protocolVersion: "2024-11-05",
+          capabilities: { tools: {} },
+          serverInfo: { name: "spark-github-mcp", version: "1.0.0" }
         });
       }
 
@@ -47,31 +51,27 @@ export default async function handler(req, res) {
       }
 
       if (method === "tools/list") {
-        return res.status(200).json({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            tools: [
-              {
-                name: "list_repositories",
-                description: "List public and private repositories for the authenticated user",
-                inputSchema: { type: "object", properties: {} }
-              },
-              {
-                name: "get_file_contents",
-                description: "Get the contents of a file in a GitHub repository",
-                inputSchema: {
-                  type: "object",
-                  properties: {
-                    owner: { type: "string" },
-                    repo: { type: "string" },
-                    path: { type: "string" }
-                  },
-                  required: ["owner", "repo", "path"]
-                }
+        return sendJsonResponse(res, id, {
+          tools: [
+            {
+              name: "list_repositories",
+              description: "List public and private repositories for the authenticated user",
+              inputSchema: { type: "object", properties: {} }
+            },
+            {
+              name: "get_file_contents",
+              description: "Get the contents of a file in a GitHub repository",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  owner: { type: "string" },
+                  repo: { type: "string" },
+                  path: { type: "string" }
+                },
+                required: ["owner", "repo", "path"]
               }
-            ]
-          }
+            }
+          ]
         });
       }
 
@@ -87,12 +87,8 @@ export default async function handler(req, res) {
             html_url: r.html_url,
             description: r.description
           }));
-          return res.status(200).json({
-            jsonrpc: "2.0",
-            id,
-            result: {
-              content: [{ type: "text", text: JSON.stringify(repos, null, 2) }]
-            }
+          return sendJsonResponse(res, id, {
+            content: [{ type: "text", text: JSON.stringify(repos, null, 2) }]
           });
         }
 
@@ -103,17 +99,13 @@ export default async function handler(req, res) {
             path: args.path
           });
           const content = Buffer.from(data.content, "base64").toString("utf-8");
-          return res.status(200).json({
-            jsonrpc: "2.0",
-            id,
-            result: {
-              content: [{ type: "text", text: content }]
-            }
+          return sendJsonResponse(res, id, {
+            content: [{ type: "text", text: content }]
           });
         }
       }
 
-      return res.status(200).json({ jsonrpc: "2.0", id, result: {} });
+      return sendJsonResponse(res, id, {});
     } catch (error) {
       return res.status(500).json({
         jsonrpc: "2.0",
