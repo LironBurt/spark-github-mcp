@@ -10,12 +10,6 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Extract auth token from Authorization header or environment variable
-  const authHeader = req.headers.authorization || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : process.env.GITHUB_TOKEN;
-
-  const octokit = new Octokit({ auth: token });
-
   // Handle GET / discovery (res.end prevents Vercel serverless function timeout)
   if (req.method === "GET") {
     res.setHeader("Content-Type", "text/event-stream");
@@ -27,6 +21,12 @@ export default async function handler(req, res) {
 
   if (req.method === "POST") {
     try {
+      // Extract auth token from Authorization header or environment variable
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : process.env.GITHUB_TOKEN;
+
+      const octokit = new Octokit({ auth: token });
+
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
       const { method, params, id } = body;
 
